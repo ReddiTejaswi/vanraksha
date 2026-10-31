@@ -1,0 +1,33 @@
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+
+# Python virtual environments and cache files
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Local runtime files
+*.log
+uvicorn.log
+*.db
+*.sqlite
+*.sqlite3
+
+# Generated case files from the prototype
+vanraksha-*-case.json
+
+# Operating system and editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
