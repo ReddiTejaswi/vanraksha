@@ -1,0 +1,5 @@
+[
+  {"id":"CW-104","title":"Canopy disturbance - North ridge","type":"Potential canopy gap for ranger review","date":"2026-10-18","lat":13.69,"lon":79.27,"confidence":0.82,"priority":"high"},
+  {"id":"CW-103","title":"Possible burn scar - East buffer","type":"Possible vegetation change; verify on the ground","date":"2026-10-16","lat":13.71,"lon":79.31,"confidence":0.67,"priority":"medium"},
+  {"id":"CW-101","title":"Small vegetation change - South path","type":"Low-area change; check for image noise","date":"2026-10-12","lat":13.65,"lon":79.24,"confidence":0.48,"priority":"low"}
+]
