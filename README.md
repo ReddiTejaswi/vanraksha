@@ -40,15 +40,19 @@ Open http://127.0.0.1:8000. run.bat is also available on Windows.
 Google Earth Engine is the satellite analysis service; Google Earth alone is only a viewer. Earth Engine requires a Google Cloud project with Earth Engine access enabled and registered.
 
 1. Copy .env.example to .env.
-2. Create/register a Google Cloud project for Earth Engine.
+2. Create/register a Google Cloud project for Earth Engine and enable the Earth Engine API for it. The account/service account that runs Vanraksha must have permission to use that project.
 3. Add its Project ID to .env:
 
 ~~~env
 GEE_PROJECT=your-google-cloud-project-id
 ~~~
 
-4. Run earthengine authenticate in a terminal once, then complete Google's browser sign-in and consent flow using the same Google account that owns the project.
-5. Restart the server. The interface changes from EARTH ENGINE SETUP NEEDED to EARTH ENGINE READY. A scan then uses the Sentinel-2 Surface Reflectance Harmonized collection. The source cadence is roughly five days, weather/clouds permitting; it is not real-time video.
+4. For local development, authenticate Earth Engine once on that machine with the Earth Engine CLI, then sign in in Google's browser flow. Set `GEE_SERVICE_ACCOUNT_JSON` only for a hosted unattended server; use the complete service-account key JSON as a private environment secret, never in source control.
+5. Restart the server and run a scan. The status label only describes which settings are present; a successful scan is what confirms credentials and access. Scans compare two cloud-screened 30-day windows from Sentinel-2 SR Harmonized. The source cadence is roughly five days, weather/clouds permitting; it is not real-time video.
+
+For a hosted deployment, register/enable Earth Engine on the Cloud project, create a service account with the minimum required Earth Engine access, and grant that service account access to use the registered project. Put the complete JSON key in the host's secret settings as `GEE_SERVICE_ACCOUNT_JSON` and set `GEE_PROJECT`. Prefer a platform identity/Workload Identity over downloadable keys when the hosting platform supports it. Never paste a private key into chat or commit it.
+
+If any API keys have been shared in chat or other public places, rotate them in their provider consoles and replace them only in local or deployment secret settings.
 
 This secure local sign-in is preferred to creating a downloadable service-account key. Do not commit .env, credentials, or case records.
 

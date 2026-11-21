@@ -1,0 +1,3 @@
+Latitude: 26.07
+Longitude: 79.13
+Radius: 50 km

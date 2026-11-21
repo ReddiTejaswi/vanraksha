@@ -5,6 +5,9 @@ const SESCHACHALAM = { latitude: 13.69, longitude: 79.27 };
 
 const style = document.createElement("style");
 style.textContent = `
+  /* The original prototype map and sample metric cards remain in the source
+     for rollback, but are hidden from the evaluator-facing live workflow. */
+  .content > .metrics, .content > .grid { display:none !important; }
   .live-panel { background:#fff; border:1px solid #e1e9e3; border-radius:11px; margin:-2px 0 14px; overflow:hidden; box-shadow:0 3px 10px #233c2d08; }
   .live-title { padding:11px 15px; display:flex; justify-content:space-between; border-bottom:1px solid #edf1ee; font-size:11px; font-weight:700; }
   .live-source { color:#5c7967; font-size:9px; font-weight:600; }
@@ -26,6 +29,12 @@ style.textContent = `
   @media(max-width:730px) { .live-grid { grid-template-columns:1fr; } .live-grid div { border-right:0; border-bottom:1px solid #edf1ee; } }
 `;
 document.head.append(style);
+
+// Replace prototype wording in the visible shell with the live workflow label.
+const demoChip = document.querySelector(".top .chip");
+if (demoChip) demoChip.textContent = "LIVE MONITORING";
+const notice = document.querySelector(".notice");
+if (notice) notice.innerHTML = "<strong>Live monitoring.</strong> Register a zone, scan the latest available Sentinel-2 imagery, review the change layers, and create a case only after ranger verification.";
 
 function createLivePanel() {
   const panel = document.createElement("section");
@@ -186,12 +195,19 @@ loadLiveContext();
 // the Earth Engine values in .env have been configured.
 const monitorStyle = document.createElement("style");
 monitorStyle.textContent = ".monitor-panel{margin:0 0 14px;background:#fff;border:1px solid #e1e9e3;border-radius:11px;padding:15px;box-shadow:0 3px 10px #233c2d08}.monitor-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;margin-bottom:12px}.monitor-head h2{font-size:13px;margin:0}.monitor-head p{font-size:9px;color:#75837a;margin:4px 0 0}.state-pill{border-radius:99px;background:#fff3df;color:#986923;font-size:8px;font-weight:700;padding:5px 7px}.state-pill.ready{background:#eaf4ed;color:#32654a}.zone-form{display:grid;grid-template-columns:1.35fr 1.45fr 1fr 1fr auto;gap:7px}.zone-form input,.zone-form select,.zone-form button{font:inherit;border:1px solid #d9e4dc;border-radius:6px;padding:8px;font-size:10px}.zone-form button{background:#246747;color:#fff;font-weight:700;border:0}.monitor-grid{display:grid;grid-template-columns:1.15fr .85fr;gap:12px;margin-top:12px}.monitor-box{border:1px solid #e7eee8;border-radius:8px;padding:11px}.monitor-box h3{font-size:10px;margin:0 0 8px}.zone-row,.note-row,.case-row{padding:8px 0;border-top:1px solid #eef2ef;font-size:9px}.zone-row:first-of-type,.note-row:first-of-type,.case-row:first-of-type{border-top:0}.zone-row{display:flex;align-items:center;justify-content:space-between;gap:8px}.zone-row b,.note-row b,.case-row b{display:block;font-size:10px}.zone-row small,.note-row small,.case-row small{color:#75837a;display:block;margin-top:3px}.scan{background:#eef5ef;color:#31573f;border:1px solid #cfe0d4;border-radius:5px;padding:5px 7px;font-size:8px;font-weight:700}.empty{font-size:9px;color:#75837a;padding:7px 0}.case-action{background:none;border:0;color:#246747;font-size:8px;padding:0;margin-top:4px;font-weight:700}@media(max-width:730px){.zone-form,.monitor-grid{grid-template-columns:1fr}.monitor-head{display:block}.state-pill{display:inline-block;margin-top:8px}}";
+monitorStyle.textContent += ".satellite-preview{display:none;margin-top:12px;border:1px solid #dce9df;border-radius:8px;overflow:hidden;background:#f5f8f5}.satellite-preview.visible{display:block}.satellite-preview img{display:block;width:100%;max-height:330px;object-fit:cover}.satellite-preview figcaption{padding:8px 10px;color:#5f7166;font-size:9px}.satellite-preview a{color:#246747;font-weight:700;margin-left:8px}.preview-loading{height:4px;background:#e5eee7;overflow:hidden}.preview-loading i{display:block;width:35%;height:100%;background:#2b7854;animation:preview-load 1.1s infinite ease-in-out}.preview-loading.done{display:none}@keyframes preview-load{0%{transform:translateX(-120%)}100%{transform:translateX(320%)}}";
+monitorStyle.textContent += ".zone-field-label{display:flex;flex-direction:column;gap:4px;color:#64766a;font-size:8px;font-weight:700}.zone-field-label input,.zone-field-label select{width:100%}";
+monitorStyle.textContent += ".hotspot-list{margin-top:8px;line-height:1.6}.hotspot-list strong{display:block;color:#31573f}.hotspot-list div{font-size:9px;color:#52645a}";
 document.head.append(monitorStyle);
 
 function createMonitoringPanel() {
   const panel = document.createElement("section");
   panel.className = "monitor-panel";
   panel.innerHTML = '<div class="monitor-head"><div><h2>Monitoring centre</h2><p>Choose a forest area and radius, then start monitoring with the latest available Sentinel-2 observations.</p></div><span id="eeState" class="state-pill">CHECKING SETUP</span></div><form id="zoneForm" class="zone-form"><select id="zonePreset" aria-label="Choose forest area"><option value="seshachalam">Seshachalam Forest</option><option value="tirumala">Tirumala Forest Block</option><option value="custom">Custom coordinates</option></select><input id="zoneName" required value="Seshachalam Forest" aria-label="Zone name" placeholder="Area name"><input id="zoneLat" required type="number" step="0.0001" value="13.6900" aria-label="Latitude" placeholder="Latitude"><input id="zoneLon" required type="number" step="0.0001" value="79.2700" aria-label="Longitude" placeholder="Longitude"><select id="zoneRadius" aria-label="Monitoring radius"><option value="5">5 km</option><option value="10" selected>10 km</option><option value="20">20 km</option><option value="50">50 km</option></select><button type="submit">Start monitoring</button></form><div class="monitor-grid"><div class="monitor-box"><h3>Saved monitoring areas</h3><div id="zoneList"><div class="empty">Loading areas...</div></div></div><div class="monitor-box"><h3>In-app notifications</h3><div id="notificationList"><div class="empty">Loading notifications...</div></div></div></div><div class="monitor-grid"><div class="monitor-box"><h3>Real scan alerts</h3><div id="realAlertList"><div class="empty">A scan creates alerts only when the detection threshold is crossed.</div></div></div><div class="monitor-box"><h3>Case files & department feedback</h3><div id="caseList"><div class="empty">Create a case from an alert, then record the verified outcome and reason.</div></div></div></div>';
+  const preview = document.createElement("figure");
+  preview.id = "satellitePreview"; preview.className = "satellite-preview";
+  preview.innerHTML = '<div id="previewLoading" class="preview-loading done"><i></i></div><img id="satellitePreviewImage" alt="Latest Sentinel-2 satellite preview"><figcaption><select id="satelliteLayerSelect" aria-label="Satellite layer"><option value="true_colour">Recent true colour</option><option value="baseline_true_colour">Baseline true colour</option><option value="infrared">False-colour infrared</option><option value="ndvi_change">NDVI change heatmap</option><option value="nbr_change">NBR change heatmap</option></select> <span id="satellitePreviewCaption">No live preview yet.</span><a id="satelliteTileLink" target="_blank" rel="noopener" hidden>Open Earth Engine tile layer</a><div id="hotspotList" class="hotspot-list"></div></figcaption>';
+  panel.querySelector(".monitor-grid").after(preview);
   document.querySelector(".ai-panel").after(panel);
 }
 
@@ -219,8 +235,12 @@ async function refreshMonitoring() {
     const config = result[0], zones = result[1], notes = result[2], alerts = result[3], cases = result[4];
     renderModeData({zones, alerts, cases});
     const state = document.getElementById("eeState");
-    state.textContent = config.earth_engine.configured ? "EARTH ENGINE READY" : "EARTH ENGINE SETUP NEEDED";
-    state.classList.toggle("ready", config.earth_engine.configured);
+    const eeMode = config.earth_engine.mode;
+    state.textContent = eeMode === "setup_required" ? "EARTH ENGINE SETUP NEEDED" :
+      eeMode === "service_account_configured" ? "SERVICE ACCOUNT SET · VERIFY WITH SCAN" : "PROJECT SET · LOCAL SIGN-IN REQUIRED";
+    // Presence of credentials is not proof that Earth Engine access works;
+    // only a successful scan can establish that.
+    state.classList.remove("ready");
     zoneList.innerHTML = "";
     if (!zones.length) empty(zoneList, "No saved areas.");
     zones.forEach(zone => {
@@ -237,7 +257,7 @@ async function refreshMonitoring() {
     notes.slice(0, 5).forEach(note => line(notificationList, note.title, note.message));
     const alertList = document.getElementById("realAlertList"); alertList.innerHTML = "";
     if (!alerts.length) empty(alertList, "No threshold alerts created yet.");
-    alerts.forEach(alert => line(alertList, alert.title, alert.priority.toUpperCase() + " · confidence " + alert.confidence + " · NDVI delta " + alert.evidence.ndvi_delta.toFixed(3), "Create case file", () => makeCase(alert.id)));
+    alerts.forEach(alert => line(alertList, alert.title, alert.priority.toUpperCase() + " · NDVI Δ " + alert.evidence.ndvi_delta.toFixed(3) + " · NBR Δ " + alert.evidence.nbr_delta.toFixed(3), "Create case file", () => makeCase(alert.id)));
     const caseList = document.getElementById("caseList"); caseList.innerHTML = "";
     if (!cases.length) empty(caseList, "No case files created.");
     cases.forEach(item => line(caseList, item.id + " · " + item.title, item.outcome ? item.outcome.replace("_", " ") + ": " + item.reason : "Open — awaiting verified department outcome", item.outcome ? null : "Record outcome", () => recordOutcome(item.id)));
@@ -249,8 +269,40 @@ async function refreshMonitoring() {
 
 async function scanZone(zoneId) {
   say("Scanning latest available satellite observations...");
-  try { const result = await api("/api/zones/" + zoneId + "/scan", {method: "POST"}); say(result.alert ? "Potential change detected; alert created." : "Scan finished; no threshold breach found."); refreshMonitoring(); }
-  catch (error) { say(error.message); }
+  document.getElementById("previewLoading")?.classList.remove("done");
+  try { const result = await api("/api/zones/" + zoneId + "/scan", {method: "POST"}); renderSatellitePreview(result.satellite); say(result.alert ? "Potential change detected; alert created." : "Scan finished; no threshold breach found."); refreshMonitoring(); }
+  catch (error) { document.getElementById("previewLoading")?.classList.add("done"); say(error.message); }
+}
+function renderSatellitePreview(satellite) {
+  const preview = satellite?.preview, frame = document.getElementById("satellitePreview");
+  if (!preview?.true_colour || !frame) return;
+  const select = document.getElementById("satelliteLayerSelect");
+  const update = () => {
+    const layer = preview[select.value] || preview.true_colour;
+    const image = document.getElementById("satellitePreviewImage");
+    const loading = document.getElementById("previewLoading");
+    loading.classList.remove("done");
+    image.onload = () => loading.classList.add("done");
+    image.onerror = () => loading.classList.add("done");
+    image.src = layer.thumbnail_url;
+    document.getElementById("satellitePreviewCaption").textContent = layer.label + " · " + satellite.recent_window;
+    const link = document.getElementById("satelliteTileLink");
+    if (layer.tile_url) { link.href = layer.tile_url; link.hidden = false; }
+  const hotspotList = document.getElementById("hotspotList");
+  hotspotList.innerHTML = "";
+  const hotspots = preview.hotspots || [];
+  if (hotspots.length) {
+    const title = document.createElement("strong"); title.textContent = "Field-check points"; hotspotList.append(title);
+    hotspots.forEach((hotspot, index) => {
+      const item = document.createElement("div");
+      item.textContent = `${index + 1}. ${hotspot.latitude.toFixed(6)}, ${hotspot.longitude.toFixed(6)} · approx. ${hotspot.approx_area_ha} ha`;
+      hotspotList.append(item);
+    });
+  } else hotspotList.textContent = "No threshold-crossing hotspot was isolated in this zone.";
+  };
+  select.onchange = update;
+  update();
+  frame.classList.add("visible");
 }
 async function makeCase(alertId) {
   try { const item = await api("/api/cases", {method: "POST", body: JSON.stringify({alert_id: alertId})}); say("Case file " + item.id + " created."); refreshMonitoring(); }
@@ -270,6 +322,12 @@ const forestPresets = {
   tirumala: {name: "Tirumala Forest Block", latitude: 13.6833, longitude: 79.3500}
 };
 createMonitoringPanel();
+const zoneFormLabels = [["zonePreset", "Forest preset"], ["zoneName", "Monitoring area name"], ["zoneLat", "Latitude"], ["zoneLon", "Longitude"], ["zoneRadius", "Monitoring radius"]];
+zoneFormLabels.forEach(([id, text]) => {
+  const field = document.getElementById(id); if (!field) return;
+  const label = document.createElement("label"); label.className = "zone-field-label"; label.textContent = text;
+  field.parentNode.insertBefore(label, field); label.appendChild(field);
+});
 refreshMonitoring();
 
 document.getElementById("zonePreset").addEventListener("change", event => {
