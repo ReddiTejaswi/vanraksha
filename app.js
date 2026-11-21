@@ -370,7 +370,7 @@ function createLoginGate() {
   const gate = document.createElement("section");
   gate.id = "loginGate";
   gate.className = "app-lock";
-  gate.innerHTML = '<form class="login-card" id="loginForm"><div class="eyebrow">Vanraksha secure workspace</div><h2>Sign in</h2><p>Enter the administrator credentials to view monitoring areas, alerts, cases, and settings.</p><input id="loginUser" autocomplete="username" value="admin" aria-label="Username" required><input id="loginPassword" type="password" autocomplete="current-password" aria-label="Password" placeholder="Password" required><button type="submit">Sign in</button><div id="loginError" class="login-error"></div><p>Prototype default: admin / admin</p></form>';
+  gate.innerHTML = '<form class="login-card" id="loginForm"><div class="eyebrow">Vanraksha workspace</div><h2>Sign in</h2><p>Sign in to manage monitoring areas, alerts, and case reviews.</p><label for="loginUser">Username</label><input id="loginUser" autocomplete="username" aria-label="Username" placeholder="Username" required><label for="loginPassword">Password</label><input id="loginPassword" type="password" autocomplete="current-password" aria-label="Password" placeholder="Password" required><button type="submit">Sign in</button><div id="loginError" class="login-error" role="alert"></div></form>';
   document.body.append(gate);
   document.getElementById("loginForm").addEventListener("submit", async event => {
     event.preventDefault();
@@ -437,9 +437,18 @@ function addAccountSettings() {
   document.getElementById("logoutButton").addEventListener("click", () => { sessionStorage.removeItem("vanraksha-session"); sessionStorage.removeItem("vanraksha-user"); location.reload(); });
   document.getElementById("closeSettings").addEventListener("click", () => { drawer.hidden = true; });
   const accountNav = document.createElement("div");
-  accountNav.className = "nav"; accountNav.textContent = "⚙  Account & settings";
+  accountNav.className = "nav account-nav"; accountNav.textContent = "⚙  Account & settings";
+  accountNav.setAttribute("role", "button");
+  accountNav.setAttribute("tabindex", "0");
+  accountNav.setAttribute("aria-controls", "accountSettings");
+  accountNav.setAttribute("aria-expanded", "false");
   document.querySelector(".side .foot").before(accountNav);
-  accountNav.addEventListener("click", () => { drawer.hidden = false; });
+  const openSettings = () => { drawer.hidden = false; accountNav.setAttribute("aria-expanded", "true"); document.getElementById("closeSettings").focus(); };
+  const closeSettings = () => { drawer.hidden = true; accountNav.setAttribute("aria-expanded", "false"); accountNav.focus(); };
+  accountNav.addEventListener("click", openSettings);
+  accountNav.addEventListener("keydown", event => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); openSettings(); } });
+  document.getElementById("closeSettings").addEventListener("click", closeSettings);
+  document.addEventListener("keydown", event => { if (event.key === "Escape" && !drawer.hidden) closeSettings(); });
 }
 
 function addMultiZoneScan() {
@@ -464,13 +473,13 @@ addMultiZoneScan();
 // illustrative event for presentation when a real scan finds nothing.
 let activeDataMode = sessionStorage.getItem("vanraksha-data-mode") || "live";
 const modeStyle = document.createElement("style");
-modeStyle.textContent = ".mode-control{display:flex;align-items:center;gap:8px;background:#fff;border:1px solid #dce8df;border-radius:99px;padding:5px 7px 5px 10px;font-size:9px;font-weight:750;color:#456050}.mode-control b{color:#1f3d2c}.mode-switch{width:40px;height:22px;border:0;border-radius:99px;background:#7a837d;position:relative;padding:0;transition:.2s}.mode-switch i{position:absolute;width:16px;height:16px;border-radius:50%;background:#fff;left:3px;top:3px;transition:.2s}.mode-switch.on{background:#2584d9}.mode-switch.on i{left:21px}.live-mode .grid > .panel:nth-child(2){display:none}.live-mode .pin,.live-mode .legend{display:none}.settings-drawer{position:fixed;z-index:90;right:18px;top:72px;width:min(360px,calc(100vw - 36px));background:#fff;border:1px solid #dbe6de;border-radius:13px;box-shadow:0 18px 52px #173b2a40;padding:17px}.settings-head{display:flex;justify-content:space-between;gap:12px}.settings-head h2{font-size:17px;margin:3px 0}.settings-head button{border:0;background:#eef4ef;width:28px;height:28px;border-radius:50%;font-size:20px}.settings-section{border-top:1px solid #edf2ee;margin-top:13px;padding-top:12px;font-size:11px}.settings-section p{color:#708076;line-height:1.5;margin:5px 0}.logout-button{width:100%;margin-top:15px;padding:9px;border:1px solid #e5c7c1;border-radius:7px;background:#fff4f2;color:#9c4537;font-weight:700}.demo-banner{display:inline-block;font-size:8px;font-weight:800;letter-spacing:.5px;color:#925f14;background:#fff2d9;border-radius:99px;padding:4px 7px;margin-bottom:6px}.live-mode .notice{background:#eef6f0}.demo-mode .notice{background:#fff8ed;border-color:#f1dfba}";
+modeStyle.textContent = ".mode-control{display:flex;align-items:center;gap:8px;background:#fff;border:1px solid #dce8df;border-radius:99px;padding:5px 7px 5px 10px;font-size:9px;font-weight:750;color:#456050}.mode-switch{width:42px;height:24px;border:0;border-radius:99px;background:#7a837d;position:relative;padding:0;transition:background .2s}.mode-switch:focus-visible,.account-nav:focus-visible{outline:3px solid #91c6a4;outline-offset:2px}.mode-switch i{position:absolute;width:18px;height:18px;border-radius:50%;background:#fff;left:3px;top:3px;transition:left .2s}.mode-switch.on{background:#2584d9}.mode-switch.on i{left:21px}.live-mode .grid > .panel:nth-child(2){display:none}.live-mode .pin,.live-mode .legend{display:none}.account-nav{border:0;text-align:left;background:transparent;width:100%;font:inherit}.settings-drawer{position:fixed;z-index:90;right:18px;top:72px;width:min(360px,calc(100vw - 36px));background:#fff;border:1px solid #dbe6de;border-radius:13px;box-shadow:0 18px 52px #173b2a40;padding:17px}.settings-head{display:flex;justify-content:space-between;gap:12px}.settings-head h2{font-size:17px;margin:3px 0}.settings-head button{border:0;background:#eef4ef;width:28px;height:28px;border-radius:50%;font-size:20px}.settings-section{border-top:1px solid #edf2ee;margin-top:13px;padding-top:12px;font-size:11px}.settings-section p{color:#708076;line-height:1.5;margin:5px 0}.logout-button{width:100%;margin-top:15px;padding:9px;border:1px solid #e5c7c1;border-radius:7px;background:#fff4f2;color:#9c4537;font-weight:700}.demo-banner{display:inline-block;font-size:8px;font-weight:800;letter-spacing:.5px;color:#925f14;background:#fff2d9;border-radius:99px;padding:4px 7px;margin-bottom:6px}.live-mode .notice{background:#eef6f0}.demo-mode .notice{background:#fff8ed;border-color:#f1dfba}";
 document.head.append(modeStyle);
 
 function createDataModeControl() {
   const control = document.createElement("div");
   control.className = "mode-control";
-  control.innerHTML = '<span id="modeLabel">LIVE DATA</span><button id="modeSwitch" class="mode-switch" type="button" aria-label="Toggle live data"><i></i></button>';
+  control.innerHTML = '<span id="modeLabel">LIVE DATA</span><button id="modeSwitch" class="mode-switch" type="button" role="switch" aria-checked="true" aria-label="Live data mode"><i></i></button>';
   document.querySelector(".top").prepend(control);
   document.getElementById("modeSwitch").addEventListener("click", () => {
     activeDataMode = activeDataMode === "live" ? "demo" : "live";
@@ -496,6 +505,8 @@ function renderModeData(data) {
   if (modeLabel && switcher) {
     modeLabel.textContent = isLive ? "LIVE DATA" : "DEMO DATA";
     switcher.classList.toggle("on", isLive);
+    switcher.setAttribute("aria-checked", String(isLive));
+    switcher.setAttribute("aria-label", isLive ? "Live data mode. Switch to demo data." : "Demo data mode. Switch to live data.");
   }
   const notice = document.querySelector(".notice");
   if (isLive) {
