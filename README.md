@@ -1,52 +1,84 @@
-# Vanraksha - Forest change monitoring prototype
+# Vanraksha — Forest Change Sentinel
 
-Vanraksha is a prototype for requesting forest-area monitoring, reviewing potential changes, and preparing evidence for ranger follow-up. The current build is a demonstration, not an operational satellite-monitoring service.
+Vanraksha helps forest guards and officers register a monitoring area, examine satellite-derived change signals, receive in-app alerts, and prepare a traceable case file for field verification.
 
-## Run the prototype
+It is a decision-support prototype. It does not prove illegality, identify a person, or initiate enforcement.
 
-From this folder, run `run.bat`, then open http://127.0.0.1:8000. The first run installs the packages in `requirements.txt`.
+## What the prototype does
 
-You can also open `index.html` directly. Direct-file mode shows sample alerts and tries public weather and wildfire feeds in the browser. Use the `Demo` switch in the header to choose between sample context and live context with AI-generated briefs.
+1. An officer enters a named location, latitude/longitude, and a 5, 10, 20, or 50 km radius.
+2. The area is saved locally and can be scanned on demand.
+3. Once Google Earth Engine is configured, the Python backend compares two cloud-screened 30-day Sentinel-2 windows over that area.
+4. It calculates NDVI (vegetation) and NBR (burn-sensitive) change. Threshold breaches become possible canopy-disturbance or burn-scar alerts.
+5. Live weather (Open-Meteo) and open wildfire events (NASA EONET) add context to an explainable priority score.
+6. A detected alert creates an in-app notification. A guard can create a case file and the department can close it as confirmed, not confirmed, or insufficient evidence, with a reason.
 
-## AI brief mode
+Runtime records are stored locally in runtime/vanraksha-state.json. That folder is intentionally ignored by Git.
 
-Use the `Demo` checkbox in the header to switch between illustrative sample context and AI briefs. Demo mode is on by default and its preference is saved in this browser. Turn it off to request an AI-generated Ranger Brief; this requires all provider settings below. If AI is not configured, the brief reports that clearly rather than silently switching back to a demo response. The Change alerts and Monitoring zones are still illustrative records in either mode: AI does not detect forest changes, verify evidence, or create live notifications.
+## Important detection scope
 
-1. Copy `.env.example` to `.env`.
-2. Set `AI_API_KEY`, `AI_MODEL`, and `AI_BASE_URL` (for example, `https://api.openai.com/v1`).
-3. Restart the server.
+Sentinel-2 is suitable for broad vegetation and burn-change monitoring, not for every activity:
 
-The key is read by the backend and is never sent to the browser. The live brief endpoint currently sends only the selected sample alert's metadata. It does **not** compare satellite images, detect a real change, or create live notifications.
+- It can flag possible canopy loss, vegetation disturbance, and burn-related changes after imagery becomes available.
+- It cannot reliably detect individual people, illegal transport vehicles under forest canopy, poaching/animal killing, or prove that a change is illegal.
+- A ranger must verify every alert using imagery review, protected-area rules, and field evidence.
 
-## Intended monitoring workflow
+## Run locally
 
-1. A ranger requests a monitoring zone by drawing or uploading a boundary and setting a monitoring period.
-2. The system validates the area and schedules satellite-image acquisition for that area.
-3. A change-detection pipeline compares cloud-screened, time-aligned imagery and flags candidate changes. A computer-vision/change-detection model should produce measurable evidence; a language model should not be treated as the image detector.
-4. The system records evidence and provenance (source, acquisition dates, boundary, affected area, model/version, confidence, and quality limitations) and sends a configurable alert.
-5. A ranger reviews the alert, adds field observations, and exports a case file containing the evidence and review history.
+Use the bundled Python or a Python 3.10+ environment. CI is configured to
+smoke-test Python 3.10 through 3.15; Python 3.15 is the latest stable release:
 
-Alerts are decision support only. AI must not decide whether activity is illegal or initiate enforcement. Human review and field verification remain required.
+~~~powershell
+python -m pip install -r requirements.txt
+python -m uvicorn backend.main:app --reload
+~~~
 
-## Current prototype coverage
+Open http://127.0.0.1:8000. run.bat is also available on Windows.
 
-- Three hard-coded sample alerts and an illustrative map.
-- Review toggle and JSON download for a sample case file.
-- Public Open-Meteo weather and NASA EONET wildfire context.
-- Explainable sample risk score; it is not a trained or validated satellite model.
-- Optional AI-generated text brief from sample alert metadata, controlled by the `Demo` toggle.
-- Sidebar views for Overview, Change alerts, Case files, and Monitoring zones.
+## Google Earth Engine setup
 
-## Known gaps before operational use
+Google Earth Engine is the satellite analysis service; Google Earth alone is only a viewer. Earth Engine requires a Google Cloud project with Earth Engine access enabled and registered.
 
-- Users cannot yet submit or persist monitoring zones; the map, boundary, coordinates, alerts, and confidence values are illustrative.
-- There is no satellite imagery ingestion, before/after image comparison, validated change-detection model, scheduled monitoring, or notification delivery.
-- Case files are downloads generated from fixed demo records; cases and review status are not stored in a database.
-- Weather and wildfire context do not validate forest loss. External imagery/data access, cloud masking, seasonal normalization, accuracy evaluation, retention/privacy controls, and ranger field verification still need to be designed and tested.
+1. Copy .env.example to .env.
+2. Create/register a Google Cloud project for Earth Engine.
+3. Add its Project ID to .env:
 
-## Stack
+~~~env
+GEE_PROJECT=your-google-cloud-project-id
+~~~
 
-- Frontend: HTML, CSS, and vanilla JavaScript
-- Backend: Python, FastAPI, Uvicorn, and HTTPX
-- Optional AI text brief: server-side OpenAI-compatible chat-completions API
-- Public context: Open-Meteo and NASA EONET
+4. Run earthengine authenticate in a terminal once, then complete Google's browser sign-in and consent flow using the same Google account that owns the project.
+5. Restart the server. The interface changes from EARTH ENGINE SETUP NEEDED to EARTH ENGINE READY. A scan then uses the Sentinel-2 Surface Reflectance Harmonized collection. The source cadence is roughly five days, weather/clouds permitting; it is not real-time video.
+
+This secure local sign-in is preferred to creating a downloadable service-account key. Do not commit .env, credentials, or case records.
+
+## AI: where it is and is not used
+
+### Suitable AI use
+
+- Satellite measurement: deterministic cloud masking plus NDVI/NBR before/after change features are the initial detector.
+- Optional LLM Ranger Brief: an OpenAI-compatible model receives only a generated alert and quantitative evidence, then writes a short, cautious verification brief.
+- Future learning loop: outcome labels and reasons from authorised departmental reviewers can be quality-checked, de-identified where necessary, evaluated for false positives/missed events, and used to retrain the prioritisation model.
+
+For an LLM brief, set AI_API_KEY, AI_MODEL, and AI_BASE_URL in .env. A capable low-cost text model is sufficient because it summarises structured measurements; it should not replace satellite change detection. If later adding visual review of exported before/after chips, use a vision-capable model only as a secondary analyst, not as evidence of illegality.
+
+### Not AI
+
+- Google Earth Engine retrieves/processes satellite data.
+- Open-Meteo and NASA EONET retrieve public context.
+- Rules create a case file and in-app notification.
+- Department outcomes, legality, and enforcement decisions remain human responsibilities.
+
+## Tech stack
+
+- Frontend: HTML, CSS, vanilla JavaScript
+- Backend: Python, FastAPI, Uvicorn, HTTPX
+- Satellite analysis: Google Earth Engine Python API, Sentinel-2 SR Harmonized
+- Context: Open-Meteo + NASA EONET
+- Optional assistant: OpenAI-compatible chat-completions endpoint
+
+## Current implementation boundaries
+
+- Monitoring is on-demand in this prototype; production use needs a scheduled worker, user login/roles, a database, secure audit storage, protected-area boundaries, and notification delivery.
+- The current 30-day thresholds are starting triage rules, not a validated operational model. They need local calibration and evaluation using ranger-reviewed cases.
+- Saved areas are circles. A production version should also support drawing/uploading true forest-boundary polygons.

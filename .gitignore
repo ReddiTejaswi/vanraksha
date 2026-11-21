@@ -22,6 +22,7 @@ uvicorn.log
 *.db
 *.sqlite
 *.sqlite3
+runtime/
 
 # Generated case files from the prototype
 vanraksha-*-case.json
