@@ -17,7 +17,7 @@ class RiskResult:
 
 def score_alert(*, canopy_change: float, temperature_c: float | None,
                 humidity_pct: float | None, wind_kmh: float | None,
-                nearby_wildfires: int) -> RiskResult:
+                nearby_wildfires: int | None) -> RiskResult:
     """Combine a sample canopy-change feature with live environmental context.
 
     canopy_change is a 0-1 feature supplied by the prototype's illustrative
@@ -35,7 +35,7 @@ def score_alert(*, canopy_change: float, temperature_c: float | None,
     if wind_kmh is not None and wind_kmh >= 20:
         score += 10
         reasons.append("Higher wind can spread fire faster")
-    if nearby_wildfires > 0:
+    if nearby_wildfires is not None and nearby_wildfires > 0:
         score += min(10, nearby_wildfires * 2)
         reasons.append(f"{nearby_wildfires} open wildfire event(s) in the nearby feed")
 
