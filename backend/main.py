@@ -110,12 +110,14 @@ class OutcomeRequest(BaseModel):
 
 class BriefRequest(BaseModel):
     alert_id: str
+    language: Literal["en", "te", "hi"] = "en"
 
 
 class ChatRequest(BaseModel):
     alert_id: str
     message: str = Field(min_length=2, max_length=1000)
     history: list[dict[str, str]] = Field(default_factory=list, max_length=12)
+    language: Literal["en", "te", "hi"] = "en"
 
 
 class LoginRequest(BaseModel):
@@ -483,6 +485,7 @@ async def ai_status() -> dict[str, Any]:
             "provider": "Sarvam AI" if sarvam_configured else ("Generic OpenAI-compatible" if generic_configured else None),
             "mode": "live" if sarvam_configured or generic_configured else "demo",
             "model": SARVAM_MODEL if sarvam_configured else (AI_MODEL or None),
+            "supported_languages": ["en", "te", "hi"],
             "missing_settings": [] if sarvam_configured or generic_configured else ["SARVAM_API_KEY", "SARVAM_MODEL"]}
 
 
@@ -494,7 +497,8 @@ async def ai_brief(request: BriefRequest, _: str = Depends(require_session)) -> 
     alert = next((item for item in read_state()["alerts"] if item["id"] == request.alert_id), None)
     if alert is None:
         raise HTTPException(status_code=404, detail="Alert not found.")
-    payload = {"alert": alert, "instruction": "Write a concise ranger brief. Use only supplied quantitative evidence. State satellite limitations, recommend verification, and never decide legality or enforcement."}
+    language_name = {"te": "Telugu", "hi": "Hindi"}.get(request.language, "English")
+    payload = {"alert": alert, "instruction": f"Write a concise ranger verification brief in {language_name}. Use only supplied quantitative evidence. Explain NDVI/NBR deltas in plain language, state satellite limitations, list the field-check action, and never decide legality or enforcement."}
     try:
         base_url = SARVAM_BASE_URL if use_sarvam else AI_BASE_URL
         headers = {"api-subscription-key": SARVAM_API_KEY} if use_sarvam else {"Authorization": f"Bearer {AI_API_KEY}"}
@@ -507,7 +511,7 @@ async def ai_brief(request: BriefRequest, _: str = Depends(require_session)) -> 
             brief = response.json()["choices"][0]["message"]["content"]
     except (httpx.HTTPError, KeyError, IndexError, TypeError, ValueError) as error:
         raise HTTPException(status_code=502, detail="Configured AI provider request failed.") from error
-    return {"brief": brief.strip()}
+    return {"brief": brief.strip(), "language": request.language, "provider": "Sarvam AI" if use_sarvam else "OpenAI-compatible"}
 
 
 @app.post("/api/ai/chat")
@@ -521,7 +525,8 @@ async def ai_chat(request: ChatRequest, _: str = Depends(require_session)) -> di
         raise HTTPException(status_code=404, detail="Live alert not found.")
     base_url = SARVAM_BASE_URL if use_sarvam else AI_BASE_URL
     headers = {"api-subscription-key": SARVAM_API_KEY} if use_sarvam else {"Authorization": f"Bearer {AI_API_KEY}"}
-    messages = [{"role": "system", "content": "You are Vanraksha's cautious ranger assistant. Use only the supplied alert evidence. Answer briefly and clearly. Never invent coordinates, claim a fire or illegality is proven, or replace field verification."}]
+    language_name = {"te": "Telugu", "hi": "Hindi"}.get(request.language, "English")
+    messages = [{"role": "system", "content": f"You are Vanraksha's cautious ranger assistant. Answer in {language_name}. Use only the supplied alert evidence. Answer briefly and clearly. Explain technical terms when asked. Never invent coordinates, claim a fire or illegality is proven, or replace field verification."}]
     messages.extend(request.history[-10:])
     messages.append({"role": "user", "content": json.dumps({"alert": alert, "question": request.message})})
     try:
@@ -529,7 +534,7 @@ async def ai_chat(request: ChatRequest, _: str = Depends(require_session)) -> di
             response = await client.post(f"{base_url}/chat/completions", headers=headers,
                 json={"model": SARVAM_MODEL if use_sarvam else AI_MODEL, "temperature": .2, "max_tokens": 500, "reasoning_effort": None, "messages": messages})
             response.raise_for_status()
-            return {"reply": response.json()["choices"][0]["message"]["content"]}
+            return {"reply": response.json()["choices"][0]["message"]["content"], "language": request.language, "provider": "Sarvam AI" if use_sarvam else "OpenAI-compatible"}
     except (httpx.HTTPError, KeyError, IndexError, TypeError, ValueError) as error:
         raise HTTPException(status_code=502, detail="Configured AI provider request failed.") from error
 

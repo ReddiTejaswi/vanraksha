@@ -11,17 +11,24 @@ style.textContent = `
   .live-panel { background:#fff; border:1px solid #e1e9e3; border-radius:11px; margin:-2px 0 14px; overflow:hidden; box-shadow:0 3px 10px #233c2d08; }
   .live-title { padding:11px 15px; display:flex; justify-content:space-between; border-bottom:1px solid #edf1ee; font-size:11px; font-weight:700; }
   .live-source { color:#5c7967; font-size:9px; font-weight:600; }
-  .live-grid { display:grid; grid-template-columns:repeat(3, 1fr); }
+  .live-grid { display:grid; grid-template-columns:repeat(2, 1fr); }
   .live-grid div { padding:12px 15px; border-right:1px solid #edf1ee; }
   .live-grid div:last-child { border-right:0; }
-  .live-grid label, .live-grid small { display:block; font-size:9px; color:#75837a; }
-  .live-grid strong { display:block; margin:5px 0 3px; font-size:13px; color:#20332a; }
+  .live-grid label, .live-grid small { display:block; font-size:11px; color:#66766c; }
+  .live-grid strong { display:block; margin:6px 0 4px; font-size:15px; color:#20332a; }
+  .live-grid div:nth-child(3) { display:none; }
   .ai-panel { background:#183b2a; border-radius:11px; color:#eff7f1; margin:-2px 0 14px; padding:14px 16px; }
   .ai-heading { display:flex; align-items:start; justify-content:space-between; }
   .ai-heading strong { font-size:13px; }
   .ai-kicker { color:#a9d9ba; font-size:9px; font-weight:700; letter-spacing:.8px; text-transform:uppercase; margin-bottom:3px; }
   .ai-heading span { border:1px solid #4e7f62; color:#c7e8d0; border-radius:99px; padding:4px 7px; font-size:8px; font-weight:700; }
   .ai-panel p { margin:10px 0; color:#d4e3d8; line-height:1.5; font-size:10px; }
+  .ai-conversation { max-height:300px; overflow-y:auto; margin:10px 0; padding-right:4px; }
+  .ai-message { background:#214b35; border-radius:7px; padding:8px 10px; margin:6px 0; color:#d4e3d8; line-height:1.5; font-size:10px; }
+  .ai-message.user { background:#2c6044; margin-left:22px; }
+  .ai-message small { display:block; color:#a9d9ba; font-size:8px; font-weight:700; margin-bottom:3px; }
+  .ai-language { display:flex; align-items:center; gap:6px; margin-top:9px; color:#c4dfcc; font-size:9px; }
+  .ai-language select { background:#214b35; color:#fff; border:1px solid #4e7f62; border-radius:5px; padding:5px; font-size:9px; }
   .ai-panel h4 { margin:10px 0 4px; color:#f0f8f2; font-size:10px; }
   .ai-panel ul { margin:6px 0 10px 16px; padding:0; color:#d4e3d8; font-size:10px; line-height:1.5; }
   .ai-actions { display:flex; gap:9px; align-items:center; }
@@ -45,11 +52,11 @@ function createLivePanel() {
   const panel = document.createElement("section");
   panel.className = "live-panel";
   panel.innerHTML = `
-    <div class="live-title"><span>Live context</span><span class="live-source">Loading public data...</span></div>
+    <div class="live-title"><span id="liveContextArea">Live context · Seshachalam Hills</span><span class="live-source">Loading public data...</span></div>
     <div class="live-grid">
       <div><label>Fire weather</label><strong id="weatherValue">Loading...</strong><small id="weatherDetail">Open-Meteo</small></div>
-      <div><label>Open wildfire events nearby</label><strong id="wildfireValue">Loading...</strong><small id="wildfireDetail">NASA EONET, 30-day feed</small></div>
-      <div><label>Forest disturbance data</label><strong>Demo records</strong><small>Connect Global Forest Watch API in a future release</small></div>
+      <div><label>Nearby active wildfire reports</label><strong id="wildfireValue">Loading...</strong><small id="wildfireDetail">NASA EONET · context only · 50 km</small></div>
+      <div aria-hidden="true"><label>Forest disturbance data</label><strong>Not connected</strong><small>Planned integration</small></div>
     </div>
   `;
   document.querySelector(".notice").after(panel);
@@ -63,7 +70,8 @@ function createAiPanel() {
       <div><div class="ai-kicker">AI-assisted triage</div><strong>Ranger Brief</strong></div>
       <span id="aiMode">Checking mode...</span>
     </div>
-    <p id="aiBrief">Ask the agent to turn the selected alert and available context into a concise review brief.</p>
+    <div id="aiConversation" class="ai-conversation"><div class="ai-message assistant">Ask the Ranger Assistant to summarize the live alert or answer a field-review question.</div></div>
+    <label class="ai-language">Brief language <select id="aiLanguage"><option value="en">English</option><option value="te">తెలుగు (Telugu)</option><option value="hi">हिन्दी (Hindi)</option></select></label>
     <div class="ai-actions">
       <button id="toggleAi" class="secondary" type="button">Enable AI</button>
       <button id="askAgent" type="button">Generate ranger brief</button>
@@ -82,6 +90,7 @@ function createAiPanel() {
   const ask = document.getElementById("askAgent");
   const askRanger = document.getElementById("askRanger");
   const question = document.getElementById("rangerQuestion");
+  const language = document.getElementById("aiLanguage");
   const chatHistory = [];
   toggle.style.display = "none";
 
@@ -129,22 +138,21 @@ function createAiPanel() {
         const liveAlerts = await api("/api/alerts");
         const liveAlert = liveAlerts[0];
         if (!liveAlert) {
-          document.getElementById("aiBrief").textContent = "No live alert is available for this scan. A Ranger Brief will appear after NDVI or NBR crosses the alert threshold.";
+          appendAiMessage("assistant", "No live alert is available for this scan. Run a scan that crosses the NDVI or NBR threshold first.");
           return;
         }
         const response = await api("/api/ai/brief", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ alert_id: liveAlert.id })
+          body: JSON.stringify({ alert_id: liveAlert.id, language: language.value })
         });
         const result = response;
-        document.getElementById("aiBrief").innerHTML = formatBrief(result.brief);
+        appendAiMessage("assistant", result.brief, "Ranger Brief · " + language.options[language.selectedIndex].text);
       } else {
-        document.getElementById("aiBrief").textContent =
-          `Demo response: ${title} should be reviewed first. Compare current and earlier imagery when available, confirm the coordinates against the protected-area boundary, and request a ranger field check. This response is mocked; it does not establish a change or make a legal finding.`;
+        appendAiMessage("assistant", `Demo response: ${title} should be reviewed first. Compare current and earlier imagery when available, confirm the coordinates against the protected-area boundary, and request a ranger field check. This response is mocked; it does not establish a change or make a legal finding.`);
       }
     } catch (error) {
-      document.getElementById("aiBrief").textContent = `Unable to generate a brief: ${error.message}`;
+      appendAiMessage("assistant", `Unable to generate a brief: ${error.message}`);
     } finally {
       ask.disabled = false;
       ask.textContent = "Generate ranger brief";
@@ -156,14 +164,25 @@ function createAiPanel() {
     try {
       const alerts = await api("/api/alerts");
       if (!alerts.length) throw new Error("Run a live scan that creates an alert first.");
-      const reply = await api("/api/ai/chat", {method: "POST", body: JSON.stringify({alert_id: alerts[0].id, message, history: chatHistory})});
+      const reply = await api("/api/ai/chat", {method: "POST", body: JSON.stringify({alert_id: alerts[0].id, message, history: chatHistory, language: language.value})});
       chatHistory.push({role: "user", content: message}, {role: "assistant", content: reply.reply});
-      document.getElementById("aiBrief").innerHTML = formatBrief(reply.reply);
+      appendAiMessage("user", message, "You");
+      appendAiMessage("assistant", reply.reply, "Ranger Assistant");
       question.value = "";
-    } catch (error) { document.getElementById("aiBrief").textContent = error.message; }
+    } catch (error) { appendAiMessage("assistant", error.message); }
   });
 
   loadAiStatus();
+}
+
+function appendAiMessage(role, text, label = role === "user" ? "You" : "Ranger Assistant") {
+  const conversation = document.getElementById("aiConversation");
+  if (!conversation) return;
+  const message = document.createElement("div");
+  message.className = "ai-message " + role;
+  const heading = document.createElement("small"); heading.textContent = label;
+  const body = document.createElement("div"); body.innerHTML = role === "assistant" ? formatBrief(text) : String(text).replace(/[&<>]/g, ch => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[ch]));
+  message.append(heading, body); conversation.append(message); conversation.scrollTop = conversation.scrollHeight;
 }
 
 function setLiveError(id, detail, fallback) {
@@ -182,7 +201,9 @@ function formatBrief(text) {
     .replace(/\n/g, "<br>");
 }
 
-async function loadLiveContext() {
+async function loadLiveContext(latitude = SESCHACHALAM.latitude, longitude = SESCHACHALAM.longitude, areaName = "Seshachalam Hills") {
+  const areaLabel = document.getElementById("liveContextArea");
+  if (areaLabel) areaLabel.textContent = `Live context · ${areaName}`;
   try {
     const response = await fetch("/api/context");
     if (!response.ok) throw new Error("Backend unavailable");
@@ -194,7 +215,7 @@ async function loadLiveContext() {
     document.getElementById("weatherDetail").textContent = `${weather.temperature_c} C, ${weather.humidity_pct}% humidity, ${weather.wind_kmh} km/h wind`;
     if (context.status === "live") {
       document.getElementById("wildfireValue").textContent = `${context.nearby_open_wildfire_events} in 50 km`;
-      document.getElementById("wildfireDetail").textContent = `NASA EONET · illustrative triage score ${context.sample_alert_risk.score}/100`;
+      document.getElementById("wildfireDetail").textContent = "NASA EONET · reported events within 50 km · context only";
       document.querySelector(".live-source").textContent = "Live context via Python FastAPI";
     } else {
       setLiveError("wildfireValue", "wildfireDetail", "Unavailable");
@@ -204,7 +225,7 @@ async function loadLiveContext() {
     // A double-clicked file cannot reach the Python route, so direct public APIs
     // keep the interface useful until the local server is started.
     try {
-      const weather = await getFireWeather(SESCHACHALAM.latitude, SESCHACHALAM.longitude);
+      const weather = await getFireWeather(latitude, longitude);
       const dry = weather.precipitation === 0 && weather.rainChance < 25;
       document.getElementById("weatherValue").textContent = dry ? "Dry conditions" : "Moist conditions";
       document.getElementById("weatherDetail").textContent = `${weather.temperature} C, ${weather.humidity}% humidity, ${weather.windSpeed} km/h wind`;
@@ -214,9 +235,9 @@ async function loadLiveContext() {
 
     try {
       const events = await getOpenWildfires();
-      const count = countEventsNear(events, SESCHACHALAM.latitude, SESCHACHALAM.longitude);
+      const count = countEventsNear(events, latitude, longitude);
       document.getElementById("wildfireValue").textContent = `${count} in 50 km`;
-      document.getElementById("wildfireDetail").textContent = "NASA EONET direct browser fallback";
+      document.getElementById("wildfireDetail").textContent = "NASA EONET · browser fallback · context only";
       document.querySelector(".live-source").textContent = "Public context loaded";
     } catch (wildfireError) {
       setLiveError("wildfireValue", "wildfireDetail", "Unavailable");
@@ -325,10 +346,10 @@ async function scanZone(zoneId) {
   say("Scanning latest available satellite observations...");
   document.getElementById("satellitePreview")?.classList.add("visible");
   document.getElementById("previewLoading")?.classList.remove("done");
-  try { const result = await api("/api/zones/" + zoneId + "/scan", {method: "POST"}); renderSatellitePreview(result.satellite); say(result.alert ? "Potential change detected; alert created." : "Scan finished; no threshold breach found."); refreshMonitoring(); }
+  try { const result = await api("/api/zones/" + zoneId + "/scan", {method: "POST"}); renderSatellitePreview(result.satellite, result.alert); say(result.alert ? "Potential change detected; alert created." : "Scan finished; no threshold breach found."); refreshMonitoring(); }
   catch (error) { document.getElementById("previewLoading")?.classList.add("done"); say(error.message); }
 }
-function renderSatellitePreview(satellite) {
+function renderSatellitePreview(satellite, alert = null) {
   const preview = satellite?.preview, frame = document.getElementById("satellitePreview");
   if (!preview?.true_colour || !frame) return;
   const select = document.getElementById("satelliteLayerSelect");
@@ -345,7 +366,9 @@ function renderSatellitePreview(satellite) {
     if (layer.tile_url) { link.href = layer.tile_url; link.hidden = false; }
   const hotspotList = document.getElementById("hotspotList");
   hotspotList.innerHTML = "";
-  const hotspots = preview.hotspots || [];
+  // Candidate pixels are useful for diagnostics, but field teams should only
+  // receive field-check points when the scan actually produced an alert.
+  const hotspots = alert ? (preview.hotspots || []) : [];
   if (hotspots.length) {
     const title = document.createElement("strong"); title.textContent = "Field-check points"; hotspotList.append(title);
     hotspots.forEach((hotspot, index) => {
@@ -401,6 +424,7 @@ document.getElementById("zonePreset").addEventListener("change", event => {
     document.getElementById("zoneName").value = preset.name;
     document.getElementById("zoneLat").value = preset.latitude.toFixed(4);
     document.getElementById("zoneLon").value = preset.longitude.toFixed(4);
+    loadLiveContext(preset.latitude, preset.longitude, preset.name);
   }
 });
 
@@ -556,6 +580,7 @@ function addLocationSearch() {
     document.getElementById("zoneLat").value = Number(option.dataset.latitude).toFixed(4);
     document.getElementById("zoneLon").value = Number(option.dataset.longitude).toFixed(4);
     say("Location selected. Choose a radius and start monitoring.");
+    loadLiveContext(Number(option.dataset.latitude), Number(option.dataset.longitude), option.textContent);
   });
 }
 
