@@ -22,10 +22,15 @@ style.textContent = `
   .ai-kicker { color:#a9d9ba; font-size:9px; font-weight:700; letter-spacing:.8px; text-transform:uppercase; margin-bottom:3px; }
   .ai-heading span { border:1px solid #4e7f62; color:#c7e8d0; border-radius:99px; padding:4px 7px; font-size:8px; font-weight:700; }
   .ai-panel p { margin:10px 0; color:#d4e3d8; line-height:1.5; font-size:10px; }
+  .ai-panel h4 { margin:10px 0 4px; color:#f0f8f2; font-size:10px; }
+  .ai-panel ul { margin:6px 0 10px 16px; padding:0; color:#d4e3d8; font-size:10px; line-height:1.5; }
   .ai-actions { display:flex; gap:9px; align-items:center; }
   .ai-actions button { border:0; border-radius:6px; background:#d6eddc; color:#173b28; padding:7px 9px; font-size:9px; font-weight:700; }
   .ai-actions button.secondary { background:transparent; color:#d4e3d8; border:1px solid #4e7f62; }
   .ai-actions small { color:#adc9b6; font-size:8px; }
+  .ai-chat { display:flex; gap:6px; margin-top:10px; }
+  .ai-chat input { flex:1; min-width:0; border:1px solid #4e7f62; border-radius:6px; background:#214b35; color:#fff; padding:7px 8px; font-size:9px; }
+  .ai-chat button { border:1px solid #7eb28d; border-radius:6px; background:#d6eddc; color:#173b28; padding:7px 10px; font-size:9px; font-weight:700; }
   @media(max-width:730px) { .live-grid { grid-template-columns:1fr; } .live-grid div { border-right:0; border-bottom:1px solid #edf1ee; } }
 `;
 document.head.append(style);
@@ -63,17 +68,22 @@ function createAiPanel() {
       <button id="toggleAi" class="secondary" type="button">Enable AI</button>
       <button id="askAgent" type="button">Generate ranger brief</button>
     </div>
+    <div class="ai-chat"><input id="rangerQuestion" placeholder="Ask about this live alert" aria-label="Ask the Ranger Assistant"><button id="askRanger" type="button">Ask</button></div>
     <small id="aiHint">Checking server-side AI configuration...</small>
   `;
   document.querySelector(".live-panel").after(panel);
 
   let aiConfigured = false;
   let aiModeMessage = "AI API is not configured; generated briefs use demo mode.";
-  let aiEnabled = false;
+  let aiEnabled = true;
   const mode = document.getElementById("aiMode");
   const hint = document.getElementById("aiHint");
   const toggle = document.getElementById("toggleAi");
   const ask = document.getElementById("askAgent");
+  const askRanger = document.getElementById("askRanger");
+  const question = document.getElementById("rangerQuestion");
+  const chatHistory = [];
+  toggle.style.display = "none";
 
   function renderAiMode() {
     mode.textContent = aiConfigured
@@ -82,7 +92,7 @@ function createAiPanel() {
     toggle.textContent = aiEnabled ? "Disable AI" : "Enable AI";
     hint.textContent = aiConfigured
       ? (aiEnabled
-        ? "Live brief uses alert metadata only; satellite-image comparison is not connected."
+        ? "Live brief uses the selected live alert's measurements and hotspot metadata; imagery remains for human review."
         : "AI is configured but disabled; generated briefs use demo mode.")
       : aiModeMessage;
   }
@@ -94,9 +104,8 @@ function createAiPanel() {
 
   async function loadAiStatus() {
     try {
-      const response = await fetch("/api/ai/status");
-      if (!response.ok) throw new Error("AI configuration status is unavailable.");
-      const status = await response.json();
+      const response = await api("/api/ai/status");
+      const status = response;
       aiConfigured = status.configured === true;
       if (!aiConfigured) {
         aiModeMessage = status.missing_settings?.includes("AI_API_KEY")
@@ -117,14 +126,19 @@ function createAiPanel() {
     ask.textContent = "Generating...";
     try {
       if (aiConfigured && aiEnabled) {
-        const response = await fetch("/api/ai/brief", {
+        const liveAlerts = await api("/api/alerts");
+        const liveAlert = liveAlerts[0];
+        if (!liveAlert) {
+          document.getElementById("aiBrief").textContent = "No live alert is available for this scan. A Ranger Brief will appear after NDVI or NBR crosses the alert threshold.";
+          return;
+        }
+        const response = await api("/api/ai/brief", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ alert_id: selected?.dataset.id })
+          body: JSON.stringify({ alert_id: liveAlert.id })
         });
-        const result = await response.json();
-        if (!response.ok) throw new Error(result.detail || "AI brief request failed.");
-        document.getElementById("aiBrief").textContent = result.brief;
+        const result = response;
+        document.getElementById("aiBrief").innerHTML = formatBrief(result.brief);
       } else {
         document.getElementById("aiBrief").textContent =
           `Demo response: ${title} should be reviewed first. Compare current and earlier imagery when available, confirm the coordinates against the protected-area boundary, and request a ranger field check. This response is mocked; it does not establish a change or make a legal finding.`;
@@ -136,6 +150,18 @@ function createAiPanel() {
       ask.textContent = "Generate ranger brief";
     }
   });
+  askRanger.addEventListener("click", async () => {
+    const message = question.value.trim();
+    if (!message) return;
+    try {
+      const alerts = await api("/api/alerts");
+      if (!alerts.length) throw new Error("Run a live scan that creates an alert first.");
+      const reply = await api("/api/ai/chat", {method: "POST", body: JSON.stringify({alert_id: alerts[0].id, message, history: chatHistory})});
+      chatHistory.push({role: "user", content: message}, {role: "assistant", content: reply.reply});
+      document.getElementById("aiBrief").innerHTML = formatBrief(reply.reply);
+      question.value = "";
+    } catch (error) { document.getElementById("aiBrief").textContent = error.message; }
+  });
 
   loadAiStatus();
 }
@@ -143,6 +169,17 @@ function createAiPanel() {
 function setLiveError(id, detail, fallback) {
   document.getElementById(id).textContent = fallback;
   document.getElementById(detail).textContent = "Live source unavailable; demo remains usable";
+}
+
+function formatBrief(text) {
+  const safe = String(text || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  return safe
+    .replace(/^###?\s*(.+)$/gm, "<h4>$1</h4>")
+    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+    .replace(/^[-•]\s+(.+)$/gm, "<li>$1</li>")
+    .replace(/(?:<li>.*<\/li>\n?)+/g, block => "<ul>" + block + "</ul>")
+    .replace(/\n{2,}/g, "<br><br>")
+    .replace(/\n/g, "<br>");
 }
 
 async function loadLiveContext() {
@@ -197,7 +234,8 @@ const monitorStyle = document.createElement("style");
 monitorStyle.textContent = ".monitor-panel{margin:0 0 14px;background:#fff;border:1px solid #e1e9e3;border-radius:11px;padding:15px;box-shadow:0 3px 10px #233c2d08}.monitor-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;margin-bottom:12px}.monitor-head h2{font-size:13px;margin:0}.monitor-head p{font-size:9px;color:#75837a;margin:4px 0 0}.state-pill{border-radius:99px;background:#fff3df;color:#986923;font-size:8px;font-weight:700;padding:5px 7px}.state-pill.ready{background:#eaf4ed;color:#32654a}.zone-form{display:grid;grid-template-columns:1.35fr 1.45fr 1fr 1fr auto;gap:7px}.zone-form input,.zone-form select,.zone-form button{font:inherit;border:1px solid #d9e4dc;border-radius:6px;padding:8px;font-size:10px}.zone-form button{background:#246747;color:#fff;font-weight:700;border:0}.monitor-grid{display:grid;grid-template-columns:1.15fr .85fr;gap:12px;margin-top:12px}.monitor-box{border:1px solid #e7eee8;border-radius:8px;padding:11px}.monitor-box h3{font-size:10px;margin:0 0 8px}.zone-row,.note-row,.case-row{padding:8px 0;border-top:1px solid #eef2ef;font-size:9px}.zone-row:first-of-type,.note-row:first-of-type,.case-row:first-of-type{border-top:0}.zone-row{display:flex;align-items:center;justify-content:space-between;gap:8px}.zone-row b,.note-row b,.case-row b{display:block;font-size:10px}.zone-row small,.note-row small,.case-row small{color:#75837a;display:block;margin-top:3px}.scan{background:#eef5ef;color:#31573f;border:1px solid #cfe0d4;border-radius:5px;padding:5px 7px;font-size:8px;font-weight:700}.empty{font-size:9px;color:#75837a;padding:7px 0}.case-action{background:none;border:0;color:#246747;font-size:8px;padding:0;margin-top:4px;font-weight:700}@media(max-width:730px){.zone-form,.monitor-grid{grid-template-columns:1fr}.monitor-head{display:block}.state-pill{display:inline-block;margin-top:8px}}";
 monitorStyle.textContent += ".satellite-preview{display:none;margin-top:12px;border:1px solid #dce9df;border-radius:8px;overflow:hidden;background:#f5f8f5}.satellite-preview.visible{display:block}.satellite-preview img{display:block;width:100%;max-height:330px;object-fit:cover}.satellite-preview figcaption{padding:8px 10px;color:#5f7166;font-size:9px}.satellite-preview a{color:#246747;font-weight:700;margin-left:8px}.preview-loading{height:4px;background:#e5eee7;overflow:hidden}.preview-loading i{display:block;width:35%;height:100%;background:#2b7854;animation:preview-load 1.1s infinite ease-in-out}.preview-loading.done{display:none}@keyframes preview-load{0%{transform:translateX(-120%)}100%{transform:translateX(320%)}}";
 monitorStyle.textContent += ".zone-field-label{display:flex;flex-direction:column;gap:4px;color:#64766a;font-size:8px;font-weight:700}.zone-field-label input,.zone-field-label select{width:100%}";
-monitorStyle.textContent += ".hotspot-list{margin-top:8px;line-height:1.6}.hotspot-list strong{display:block;color:#31573f}.hotspot-list div{font-size:9px;color:#52645a}";
+monitorStyle.textContent += ".hotspot-list{margin-top:8px;line-height:1.6}.hotspot-list strong{display:block;color:#31573f}.hotspot-list div{font-size:9px;color:#52645a}.case-action{display:inline-block;background:#246747;color:#fff;border:0;border-radius:5px;padding:6px 8px;font-size:8px;font-weight:700}.case-row small{margin-bottom:5px}";
+monitorStyle.textContent += ".case-card{display:flex;flex-direction:column;align-items:flex-start;gap:3px}.case-card b{font-size:11px}.case-card .case-outcome{font-size:9px;color:#405b4b;background:#f2f7f3;border-radius:5px;padding:6px;margin:4px 0;width:100%}.secondary-case{background:#eef5ef;color:#31573f}";
 document.head.append(monitorStyle);
 
 function createMonitoringPanel() {
@@ -208,11 +246,14 @@ function createMonitoringPanel() {
   preview.id = "satellitePreview"; preview.className = "satellite-preview";
   preview.innerHTML = '<div id="previewLoading" class="preview-loading done"><i></i></div><img id="satellitePreviewImage" alt="Latest Sentinel-2 satellite preview"><figcaption><select id="satelliteLayerSelect" aria-label="Satellite layer"><option value="true_colour">Recent true colour</option><option value="baseline_true_colour">Baseline true colour</option><option value="infrared">False-colour infrared</option><option value="ndvi_change">NDVI change heatmap</option><option value="nbr_change">NBR change heatmap</option></select> <span id="satellitePreviewCaption">No live preview yet.</span><a id="satelliteTileLink" target="_blank" rel="noopener" hidden>Open Earth Engine tile layer</a><div id="hotspotList" class="hotspot-list"></div></figcaption>';
   panel.querySelector(".monitor-grid").after(preview);
-  document.querySelector(".ai-panel").after(panel);
+  const aiPanel = document.querySelector(".ai-panel");
+  if (aiPanel) preview.after(aiPanel);
+  document.querySelector(".content")?.append(panel);
 }
 
 async function api(path, options = {}) {
-  const response = await fetch(path, {headers: {"Content-Type": "application/json", ...(options.headers || {})}, ...options});
+  const token = sessionStorage.getItem("vanraksha-session");
+  const response = await fetch(path, {...options, headers: {"Content-Type": "application/json", ...(token ? {Authorization: "Bearer " + token} : {}), ...(options.headers || {})}});
   const body = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(typeof body.detail === "string" ? body.detail : body.detail?.message || "Request failed");
   return body;
@@ -260,7 +301,20 @@ async function refreshMonitoring() {
     alerts.forEach(alert => line(alertList, alert.title, alert.priority.toUpperCase() + " · NDVI Δ " + alert.evidence.ndvi_delta.toFixed(3) + " · NBR Δ " + alert.evidence.nbr_delta.toFixed(3), "Create case file", () => makeCase(alert.id)));
     const caseList = document.getElementById("caseList"); caseList.innerHTML = "";
     if (!cases.length) empty(caseList, "No case files created.");
-    cases.forEach(item => line(caseList, item.id + " · " + item.title, item.outcome ? item.outcome.replace("_", " ") + ": " + item.reason : "Open — awaiting verified department outcome", item.outcome ? null : "Record outcome", () => recordOutcome(item.id)));
+    cases.forEach(item => {
+      const row = document.createElement("div"); row.className = "case-row case-card";
+      const title = document.createElement("b"); title.textContent = item.title;
+      const meta = document.createElement("small"); meta.textContent = `${item.id} · ${item.status === "closed" ? "Closed" : "Open"} · created ${new Date(item.created_at).toLocaleString()}`;
+      const evidence = item.evidence || {};
+      const details = document.createElement("small"); details.textContent = `NDVI Δ ${Number(evidence.ndvi_delta || 0).toFixed(3)} · NBR Δ ${Number(evidence.nbr_delta || 0).toFixed(3)} · ${evidence.hotspots?.length || 0} field-check points`;
+      row.append(title, meta, details);
+      const outcome = document.createElement("div"); outcome.className = "case-outcome";
+      outcome.textContent = item.outcome ? `${item.outcome.replaceAll("_", " ")}: ${item.reason}` : "Awaiting ranger or department verification.";
+      row.append(outcome);
+      if (!item.outcome) { const button = document.createElement("button"); button.className = "case-action"; button.textContent = "Record outcome"; button.addEventListener("click", () => recordOutcome(item.id)); row.append(button); }
+      const exportButton = document.createElement("button"); exportButton.className = "case-action secondary-case"; exportButton.textContent = "Export case JSON"; exportButton.addEventListener("click", () => downloadCase(item)); row.append(exportButton);
+      caseList.append(row);
+    });
   } catch (error) {
     empty(zoneList, "Start the Python server to use saved zones and scans.");
     empty(document.getElementById("notificationList"), "Backend unavailable.");
@@ -269,6 +323,7 @@ async function refreshMonitoring() {
 
 async function scanZone(zoneId) {
   say("Scanning latest available satellite observations...");
+  document.getElementById("satellitePreview")?.classList.add("visible");
   document.getElementById("previewLoading")?.classList.remove("done");
   try { const result = await api("/api/zones/" + zoneId + "/scan", {method: "POST"}); renderSatellitePreview(result.satellite); say(result.alert ? "Potential change detected; alert created." : "Scan finished; no threshold breach found."); refreshMonitoring(); }
   catch (error) { document.getElementById("previewLoading")?.classList.add("done"); say(error.message); }
@@ -303,6 +358,12 @@ function renderSatellitePreview(satellite) {
   select.onchange = update;
   update();
   frame.classList.add("visible");
+}
+function downloadCase(item) {
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(new Blob([JSON.stringify(item, null, 2)], {type: "application/json"}));
+  link.download = "vanraksha-" + item.id + "-case.json"; link.click();
+  setTimeout(() => URL.revokeObjectURL(link.href), 500); say("Case file exported.");
 }
 async function makeCase(alertId) {
   try { const item = await api("/api/cases", {method: "POST", body: JSON.stringify({alert_id: alertId})}); say("Case file " + item.id + " created."); refreshMonitoring(); }
@@ -443,7 +504,22 @@ function createLoginGate() {
       refreshMonitoring();
     } catch (loginError) { error.textContent = loginError.message; }
   });
-  if (sessionStorage.getItem("vanraksha-session")) gate.remove();
+  const savedToken = sessionStorage.getItem("vanraksha-session");
+  if (savedToken) {
+    fetch("/api/zones", {headers: {Authorization: "Bearer " + savedToken}})
+      .then(response => {
+        if (response.ok) gate.remove();
+        else {
+          sessionStorage.removeItem("vanraksha-session");
+          sessionStorage.removeItem("vanraksha-user");
+        }
+      })
+      .catch(() => {
+        // Keep the gate closed only when the backend confirms the session.
+        sessionStorage.removeItem("vanraksha-session");
+        sessionStorage.removeItem("vanraksha-user");
+      });
+  }
 }
 
 function addLocationSearch() {
@@ -459,9 +535,7 @@ function addLocationSearch() {
     const query = document.getElementById("locationSearch").value.trim();
     if (query.length < 3) { say("Enter at least three characters to search."); return; }
     try {
-      const response = await fetch("/api/locations/search?q=" + encodeURIComponent(query));
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload.detail || "Location search failed.");
+      const payload = await api("/api/locations/search?q=" + encodeURIComponent(query));
       results.innerHTML = "";
       if (!payload.results.length) { say("No matching locations found."); results.hidden = true; return; }
       const starter = document.createElement("option"); starter.value = ""; starter.textContent = "Choose a result · " + payload.source; results.append(starter);

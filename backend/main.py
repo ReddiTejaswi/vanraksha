@@ -18,7 +18,7 @@ from typing import Any, Literal
 
 import httpx
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -30,6 +30,9 @@ STATE_FILE = RUNTIME_DIR / "vanraksha-state.json"
 load_dotenv(ROOT / ".env")
 AI_API_KEY, AI_MODEL = os.getenv("AI_API_KEY", "").strip(), os.getenv("AI_MODEL", "").strip()
 AI_BASE_URL = os.getenv("AI_BASE_URL", "").strip().rstrip("/")
+SARVAM_API_KEY = os.getenv("SARVAM_API_KEY", "").strip()
+SARVAM_MODEL = os.getenv("SARVAM_MODEL", "sarvam-105b-conversations").strip()
+SARVAM_BASE_URL = os.getenv("SARVAM_BASE_URL", "https://api.sarvam.ai/v1").strip().rstrip("/")
 GEE_PROJECT = os.getenv("GEE_PROJECT", "").strip()
 GEE_SERVICE_ACCOUNT = os.getenv("GEE_SERVICE_ACCOUNT", "").strip()
 GEE_PRIVATE_KEY = os.getenv("GEE_PRIVATE_KEY", "").replace("\\n", "\n").strip()
@@ -40,6 +43,14 @@ APP_ADMIN_PASSWORD = os.getenv("APP_ADMIN_PASSWORD", "admin").strip()
 ACTIVE_SESSIONS: set[str] = set()
 app = FastAPI(title="Vanraksha API", version="0.2.0")
 LOGGER = logging.getLogger("vanraksha")
+
+
+def require_session(authorization: str | None = Header(default=None)) -> str:
+    """Require the short-lived prototype session for app data routes."""
+    token = authorization.removeprefix("Bearer ").strip() if authorization else ""
+    if not token or token not in ACTIVE_SESSIONS:
+        raise HTTPException(status_code=401, detail="Sign in to access Vanraksha data.")
+    return token
 
 
 def now_iso() -> str:
@@ -101,6 +112,12 @@ class BriefRequest(BaseModel):
     alert_id: str
 
 
+class ChatRequest(BaseModel):
+    alert_id: str
+    message: str = Field(min_length=2, max_length=1000)
+    history: list[dict[str, str]] = Field(default_factory=list, max_length=12)
+
+
 class LoginRequest(BaseModel):
     username: str = Field(min_length=1, max_length=80)
     password: str = Field(min_length=1, max_length=200)
@@ -138,7 +155,7 @@ async def login(request: LoginRequest) -> dict[str, str]:
 
 
 @app.get("/api/locations/search")
-async def search_locations(q: str = Query(min_length=3, max_length=120)) -> dict[str, Any]:
+async def search_locations(q: str = Query(min_length=3, max_length=120), _: str = Depends(require_session)) -> dict[str, Any]:
     """Search a place using Google Geocoding when configured, otherwise OSM."""
     async with httpx.AsyncClient(timeout=12) as client:
         if GOOGLE_MAPS_API_KEY:
@@ -347,16 +364,18 @@ async def health() -> dict[str, Any]:
 
 @app.get("/api/config/status")
 async def config_status() -> dict[str, Any]:
-    return {"earth_engine": earth_engine_status(), "ai": {"configured": bool(AI_API_KEY and AI_MODEL and AI_BASE_URL), "model": AI_MODEL or None}}
+    return {"earth_engine": earth_engine_status(), "ai": {"configured": bool(SARVAM_API_KEY and SARVAM_MODEL) or bool(AI_API_KEY and AI_MODEL and AI_BASE_URL),
+            "provider": "Sarvam AI" if SARVAM_API_KEY else ("Generic OpenAI-compatible" if AI_API_KEY else None),
+            "model": SARVAM_MODEL if SARVAM_API_KEY else (AI_MODEL or None)}}
 
 
 @app.get("/api/zones")
-async def list_zones() -> list[dict[str, Any]]:
+async def list_zones(_: str = Depends(require_session)) -> list[dict[str, Any]]:
     return read_state()["zones"]
 
 
 @app.post("/api/zones", status_code=201)
-async def create_zone(request: ZoneRequest) -> dict[str, Any]:
+async def create_zone(request: ZoneRequest, _: str = Depends(require_session)) -> dict[str, Any]:
     state = read_state()
     zone = {"id": f"zone-{uuid.uuid4().hex[:8]}", "name": request.name.strip(), "latitude": request.latitude,
             "longitude": request.longitude, "radius_km": request.radius_km, "created_at": now_iso(), "monitoring": True, "last_scan": None}
@@ -367,7 +386,7 @@ async def create_zone(request: ZoneRequest) -> dict[str, Any]:
 
 
 @app.post("/api/zones/{zone_id}/scan")
-async def scan_zone(zone_id: str, end_date: str | None = Query(default=None, alias="end_date"), window_days: int = Query(default=30, ge=14, le=90)) -> dict[str, Any]:
+async def scan_zone(zone_id: str, end_date: str | None = Query(default=None, alias="end_date"), window_days: int = Query(default=30, ge=14, le=90), _: str = Depends(require_session)) -> dict[str, Any]:
     state = read_state()
     zone = find_zone(state, zone_id)
     async with httpx.AsyncClient(timeout=12) as client:
@@ -403,12 +422,12 @@ async def scan_zone(zone_id: str, end_date: str | None = Query(default=None, ali
 
 
 @app.get("/api/alerts")
-async def list_alerts() -> list[dict[str, Any]]:
+async def list_alerts(_: str = Depends(require_session)) -> list[dict[str, Any]]:
     return read_state()["alerts"]
 
 
 @app.post("/api/cases", status_code=201)
-async def create_case(request: CaseRequest) -> dict[str, Any]:
+async def create_case(request: CaseRequest, _: str = Depends(require_session)) -> dict[str, Any]:
     state = read_state()
     alert = next((item for item in state["alerts"] if item["id"] == request.alert_id), None)
     if alert is None:
@@ -426,12 +445,12 @@ async def create_case(request: CaseRequest) -> dict[str, Any]:
 
 
 @app.get("/api/cases")
-async def list_cases() -> list[dict[str, Any]]:
+async def list_cases(_: str = Depends(require_session)) -> list[dict[str, Any]]:
     return read_state()["cases"]
 
 
 @app.post("/api/cases/{case_id}/outcome")
-async def record_outcome(case_id: str, request: OutcomeRequest) -> dict[str, Any]:
+async def record_outcome(case_id: str, request: OutcomeRequest, _: str = Depends(require_session)) -> dict[str, Any]:
     state = read_state()
     case = next((item for item in state["cases"] if item["id"] == case_id), None)
     if case is None:
@@ -444,12 +463,12 @@ async def record_outcome(case_id: str, request: OutcomeRequest) -> dict[str, Any
 
 
 @app.get("/api/notifications")
-async def list_notifications() -> list[dict[str, Any]]:
+async def list_notifications(_: str = Depends(require_session)) -> list[dict[str, Any]]:
     return read_state()["notifications"][:25]
 
 
 @app.get("/api/learning/summary")
-async def learning_summary() -> dict[str, Any]:
+async def learning_summary(_: str = Depends(require_session)) -> dict[str, Any]:
     cases = read_state()["cases"]
     closed = [item for item in cases if item.get("outcome")]
     return {"reviewed_cases": len(closed), "outcomes": {value: sum(item.get("outcome") == value for item in closed) for value in ("confirmed", "not_confirmed", "insufficient_evidence")},
@@ -458,28 +477,61 @@ async def learning_summary() -> dict[str, Any]:
 
 @app.get("/api/ai/status")
 async def ai_status() -> dict[str, Any]:
-    configured = bool(AI_API_KEY and AI_MODEL and AI_BASE_URL)
-    return {"configured": configured, "mode": "live" if configured else "demo",
-            "missing_settings": [name for name, value in (("AI_API_KEY", AI_API_KEY), ("AI_MODEL", AI_MODEL), ("AI_BASE_URL", AI_BASE_URL)) if not value]}
+    sarvam_configured = bool(SARVAM_API_KEY and SARVAM_MODEL)
+    generic_configured = bool(AI_API_KEY and AI_MODEL and AI_BASE_URL)
+    return {"configured": sarvam_configured or generic_configured,
+            "provider": "Sarvam AI" if sarvam_configured else ("Generic OpenAI-compatible" if generic_configured else None),
+            "mode": "live" if sarvam_configured or generic_configured else "demo",
+            "model": SARVAM_MODEL if sarvam_configured else (AI_MODEL or None),
+            "missing_settings": [] if sarvam_configured or generic_configured else ["SARVAM_API_KEY", "SARVAM_MODEL"]}
 
 
 @app.post("/api/ai/brief")
-async def ai_brief(request: BriefRequest) -> dict[str, str]:
-    if not (AI_API_KEY and AI_MODEL and AI_BASE_URL):
+async def ai_brief(request: BriefRequest, _: str = Depends(require_session)) -> dict[str, str]:
+    use_sarvam = bool(SARVAM_API_KEY and SARVAM_MODEL)
+    if not use_sarvam and not (AI_API_KEY and AI_MODEL and AI_BASE_URL):
         raise HTTPException(status_code=503, detail="AI is not configured; use demo mode.")
     alert = next((item for item in read_state()["alerts"] if item["id"] == request.alert_id), None)
     if alert is None:
         raise HTTPException(status_code=404, detail="Alert not found.")
     payload = {"alert": alert, "instruction": "Write a concise ranger brief. Use only supplied quantitative evidence. State satellite limitations, recommend verification, and never decide legality or enforcement."}
     try:
+        base_url = SARVAM_BASE_URL if use_sarvam else AI_BASE_URL
+        headers = {"api-subscription-key": SARVAM_API_KEY} if use_sarvam else {"Authorization": f"Bearer {AI_API_KEY}"}
         async with httpx.AsyncClient(timeout=30) as client:
-            response = await client.post(f"{AI_BASE_URL}/chat/completions", headers={"Authorization": f"Bearer {AI_API_KEY}"},
-                json={"model": AI_MODEL, "temperature": .2, "messages": [{"role": "system", "content": "You are a cautious forest-monitoring assistant."}, {"role": "user", "content": json.dumps(payload)}]})
+            response = await client.post(f"{base_url}/chat/completions", headers=headers,
+                json={"model": SARVAM_MODEL if use_sarvam else AI_MODEL, "temperature": .2,
+                      "max_tokens": 500, "reasoning_effort": None,
+                      "messages": [{"role": "system", "content": "You are a cautious forest-monitoring assistant. Write a concise ranger verification brief. Never claim a fire or illegality as proven."}, {"role": "user", "content": json.dumps(payload)}]})
             response.raise_for_status()
             brief = response.json()["choices"][0]["message"]["content"]
     except (httpx.HTTPError, KeyError, IndexError, TypeError, ValueError) as error:
         raise HTTPException(status_code=502, detail="Configured AI provider request failed.") from error
     return {"brief": brief.strip()}
+
+
+@app.post("/api/ai/chat")
+async def ai_chat(request: ChatRequest, _: str = Depends(require_session)) -> dict[str, str]:
+    """Answer a ranger question using only one live alert's evidence."""
+    use_sarvam = bool(SARVAM_API_KEY and SARVAM_MODEL)
+    if not use_sarvam and not (AI_API_KEY and AI_MODEL and AI_BASE_URL):
+        return {"reply": "The Ranger Assistant is not configured. Review the alert layers and field-check points manually."}
+    alert = next((item for item in read_state()["alerts"] if item["id"] == request.alert_id), None)
+    if alert is None:
+        raise HTTPException(status_code=404, detail="Live alert not found.")
+    base_url = SARVAM_BASE_URL if use_sarvam else AI_BASE_URL
+    headers = {"api-subscription-key": SARVAM_API_KEY} if use_sarvam else {"Authorization": f"Bearer {AI_API_KEY}"}
+    messages = [{"role": "system", "content": "You are Vanraksha's cautious ranger assistant. Use only the supplied alert evidence. Answer briefly and clearly. Never invent coordinates, claim a fire or illegality is proven, or replace field verification."}]
+    messages.extend(request.history[-10:])
+    messages.append({"role": "user", "content": json.dumps({"alert": alert, "question": request.message})})
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            response = await client.post(f"{base_url}/chat/completions", headers=headers,
+                json={"model": SARVAM_MODEL if use_sarvam else AI_MODEL, "temperature": .2, "max_tokens": 500, "reasoning_effort": None, "messages": messages})
+            response.raise_for_status()
+            return {"reply": response.json()["choices"][0]["message"]["content"]}
+    except (httpx.HTTPError, KeyError, IndexError, TypeError, ValueError) as error:
+        raise HTTPException(status_code=502, detail="Configured AI provider request failed.") from error
 
 
 app.mount("/", StaticFiles(directory=ROOT, html=True), name="frontend")
